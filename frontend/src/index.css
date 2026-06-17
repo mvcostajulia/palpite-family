@@ -1,0 +1,5 @@
+@import "tailwindcss";
+
+/* Alerta o Tailwind v4 para procurar classes nestas pastas */
+@source "../index.html";
+@source "./**/*.{js,ts,jsx,tsx}";
