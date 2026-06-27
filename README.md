@@ -3,6 +3,13 @@ Projeto pessoal estruturado e desenvolvido para um evento familiar, com o objeti
 
 Codificado com Node.js e Express no back-end, integrado diretamente ao MongoDB (driver oficial) — sem o uso de ORMs ou ODMs como o Mongoose. O front-end foi desenvolvido em React utilizando o Vite para uma inicialização e build de alta performance.
 
+## Preview
+
+![Tela inicial](./frontend/public/demo.gif)
+
+## Versão mobile
+
+![Mobile](./frontend/public/demo-mobile.gif)
 
 ## Tecnologias
 -Node.js
