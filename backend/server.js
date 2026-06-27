@@ -29,52 +29,144 @@ connectToDb()
 
 app.get('/api/jogos', async (req, res) => {
   try {
-    const hoje = new Date();
-    const inicioSemana = new Date(hoje);
-    const diasDesdeQuinta = (hoje.getDay() - 4 + 7) % 7;
-    inicioSemana.setDate(hoje.getDate() - diasDesdeQuinta);
-    const fimSemana = new Date(inicioSemana);
-    fimSemana.setDate(inicioSemana.getDate() + 7);
-    const dateFrom = inicioSemana.toISOString().split('T')[0];
-    const dateTo = fimSemana.toISOString().split('T')[0];
-    const url = `https://api.football-data.org/v4/competitions/WC/matches?dateFrom=${dateFrom}&dateTo=${dateTo}`;
+    const blocos = [
+      { dateFrom: '2026-06-11', dateTo: '2026-06-18' },
+      { dateFrom: '2026-06-19', dateTo: '2026-06-27' },
+      { dateFrom: '2026-06-28', dateTo: '2026-06-28' },
+      { dateFrom: '2026-06-29', dateTo: '2026-07-03' },
+      { dateFrom: '2026-07-04', dateTo: '2026-07-07' },
+      { dateFrom: '2026-07-09', dateTo: '2026-07-11' },
+      { dateFrom: '2026-07-14', dateTo: '2026-07-15' },
+      { dateFrom: '2026-07-18', dateTo: '2026-07-18' },
+      { dateFrom: '2026-07-19', dateTo: '2026-07-19' },
+    ];
+
+    const TESTE_BLOCO = null;
+
+    const hoje = TESTE_BLOCO !== null
+      ? new Date(blocos[TESTE_BLOCO].dateFrom + 'T00:00:00')
+      : new Date();
+    hoje.setHours(0, 0, 0, 0);
+
+    const indiceEncontrado = blocos.findIndex(b => {
+      const from = new Date(b.dateFrom + 'T00:00:00');
+      const to = new Date(b.dateTo + 'T00:00:00');
+      return hoje >= from && hoje <= to;
+    });
+
+    const indiceBlocoAtual =
+      indiceEncontrado === -1
+        ? blocos.length - 1
+        : indiceEncontrado;
+
+    const ultimoDiaBlocoAtual =
+      hoje.toISOString().split('T')[0] ===
+      blocos[indiceBlocoAtual].dateTo;
+
+    const limiteNavegacao =
+      ultimoDiaBlocoAtual
+        ? Math.min(indiceBlocoAtual + 1, blocos.length - 1)
+        : indiceBlocoAtual;
+
+    const blocoSolicitado = Number(req.query.bloco);
+
+    const indiceSelecionado =
+      Number.isInteger(blocoSolicitado)
+        ? blocoSolicitado
+        : indiceBlocoAtual;
+
+    if (
+      indiceSelecionado < 0 ||
+      indiceSelecionado > limiteNavegacao
+    ) {
+      return res.status(400).json({
+        error: 'Bloco inválido'
+      });
+    }
+
+    const { dateFrom, dateTo } = blocos[indiceSelecionado];
+
+    const dateToApi = indiceSelecionado >= 3
+      ? new Date(new Date(dateTo + 'T00:00:00').getTime() + 24 * 60 * 60 * 1000)
+          .toISOString().split('T')[0]
+      : dateTo;
+
+    const url = `https://api.football-data.org/v4/competitions/WC/matches?dateFrom=${dateFrom}&dateTo=${dateToApi}`;
+
     const response = await fetch(url, {
       headers: {
         'X-Auth-Token': process.env.FOOTBALL_API_TOKEN
       }
     });
+
     if (!response.ok) {
       throw new Error(`Erro API: ${response.status}`);
     }
-    const data = await response.json();
-    const jogos = data.matches.map(match => ({
-      id: match.id,
-      data: match.utcDate,
-      dataFormatada: new Date(match.utcDate).toLocaleString('pt-BR'),
-      status: match.status,
-      grupo: match.group,
-      timeUm: {
-        nome: match.homeTeam.name,
-        sigla: match.homeTeam.tla,
-        escudo: match.homeTeam.crest
-      },
-      timeDois: {
-        nome: match.awayTeam.name,
-        sigla: match.awayTeam.tla,
-        escudo: match.awayTeam.crest
-      },
-      placar: {
-        timeUm: match.score.fullTime.home,
-        timeDois: match.score.fullTime.away
-      },
-      vencedor: match.score.winner
-    }));
+
+    const apiData = await response.json();
+
+    const inicioUtc = new Date(dateFrom + 'T03:00:00Z');
+
+    const limiteUtc = new Date(dateTo);
+    limiteUtc.setUTCDate(limiteUtc.getUTCDate() + 1);
+    limiteUtc.setUTCHours(3, 0, 0, 0);
+
+    const jogos = apiData.matches
+      .filter(match => {
+        if (indiceSelecionado < 3) return true;
+        const utcDate = new Date(match.utcDate);
+        return utcDate >= inicioUtc && utcDate <= limiteUtc;
+      })
+      .map(match => {
+        let dataJogo;
+
+        if (match.id === 537330) {
+          dataJogo = '2026-06-19';
+        } else if (indiceSelecionado <= 1) {
+          dataJogo = match.utcDate.split('T')[0];
+        } else {
+          dataJogo = new Date(match.utcDate).toLocaleDateString('en-CA', {
+            timeZone: 'America/Sao_Paulo'
+          });
+        }
+
+        return {
+          id: match.id,
+          data: dataJogo,
+          dataFormatada: new Date(match.utcDate).toLocaleString('pt-BR', {
+            timeZone: 'America/Sao_Paulo'
+          }),
+          status: match.status,
+          grupo: match.group,
+          timeUm: {
+            nome: match.homeTeam.name,
+            sigla: match.homeTeam.tla,
+            escudo: match.homeTeam.crest
+          },
+          timeDois: {
+            nome: match.awayTeam.name,
+            sigla: match.awayTeam.tla,
+            escudo: match.awayTeam.crest
+          },
+          placar: {
+            timeUm: match.score.fullTime.home,
+            timeDois: match.score.fullTime.away
+          },
+          vencedor: match.score.winner
+        };
+      });
+
     res.json({
-      competicao: data.competition.name,
-      temporada: data.filters.season,
+      competicao: apiData.competition.name,
+      temporada: apiData.filters.season,
       quantidade: jogos.length,
+      blocoAtual: indiceBlocoAtual,
+      blocoSelecionado: indiceSelecionado,
+      possuiAnterior: indiceSelecionado > 0,
+      possuiProximo: indiceSelecionado < limiteNavegacao,
       jogos
     });
+
   } catch (error) {
     console.error(error);
     res.status(500).json({
@@ -82,6 +174,7 @@ app.get('/api/jogos', async (req, res) => {
     });
   }
 });
+
 
 app.get('/api/palpites/:participanteId/:semana', async (req, res) => {
   const { participanteId, semana } = req.params;
