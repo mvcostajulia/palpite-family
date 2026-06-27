@@ -4,58 +4,9 @@ import { useState, useEffect } from "react"
 
 /* ----------------------------- Data ----------------------------- */
 
-const participantes = require('../../participantes');
+
 let matches = [];
-
-async function carregarJogos() {
-  try {
-    const response = await fetch('/api/jogos');
-
-    if (!response.ok) {
-      throw new Error(`Erro ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    matches = data.jogos.map(jogo => ({
-      id: jogo.id,
-      grupo: jogo.grupo.replace('_', ' ').replace('GROUP', 'Grupo'),
-      timeUm: jogo.timeUm.nome,
-      escudoTimeUm: jogo.timeUm.escudo,
-      timeDois: jogo.timeDois.nome,
-      escudoTimeDois: jogo.timeDois.escudo,
-      status: jogo.status,
-      placar: {
-        timeUm: jogo.placar.timeUm,
-        timeDois: jogo.placar.timeDois
-      },
-      vencedor:
-        jogo.vencedor === 'HOME_TEAM'
-          ? 'timeUm'
-          : jogo.vencedor === 'AWAY_TEAM'
-            ? 'timeDois'
-            : null,
-      data: jogo.data,
-      dataFormatada: jogo.dataFormatada
-    }));
-  } catch (error) {
-    console.error('Erro ao carregar jogos:', error);
-  }
-}
-
-
-// Mock leaderboard for the family. Replace with your API fetch later.
-const leaderboard = [
-  { id: "u1", name: "Carlos", exact: 4, goals: 9, points: 38 },
-  { id: "u2", name: "Ana Paula", exact: 3, goals: 11, points: 35 },
-  { id: "u3", name: "Tio Beto", exact: 3, goals: 7, points: 29 },
-  { id: "u4", name: "Mariana", exact: 2, goals: 8, points: 24 },
-  { id: "u5", name: "Vovó Lúcia", exact: 2, goals: 5, points: 19 },
-  { id: "u6", name: "Pedro", exact: 1, goals: 6, points: 15 },
-  { id: "u7", name: "Júlia", exact: 1, goals: 4, points: 11 },
-  { id: "u8", name: "Rafael", exact: 0, goals: 3, points: 6 },
-]
-
+const participantes = require('../../participantes');
 /* ------------------------------- Icons (SVG) ----------------------------- */
 
 function TrophyIcon({ className }) {
@@ -153,9 +104,10 @@ function MatchCard({
     onChangeA,
     onChangeB,
     disabled,
-    pontos
+    pontos, 
+    semanaDefinida
   }){
-  const locked = match.status !== "TIMED";
+  const locked = match.status !== "TIMED" || !semanaDefinida;
   const scoreBoxClass =
    "flex size-12 items-center justify-center rounded-md bg-zinc-900 text-white text-2xl font-bold tabular-nums shadow-sm border border-zinc-700"
   const inputClass =
@@ -203,7 +155,7 @@ function MatchCard({
           {locked ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
               <LockIcon className="size-3" />
-              Jogo encerrado - Bloqueado
+              {match.status !== "TIMED" ? "Jogo encerrado - Bloqueado" : "Aguardando definição"}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
@@ -242,7 +194,7 @@ function MatchCard({
                 className={inputClass}
               />
             )}
-            <span className="text-lg font-bold text-muted-foreground">X</span>
+            <span className="text-lg font-bold text-center text-muted-foreground">X</span>
             {locked ? (
               <span className={scoreBoxClass}>
                 {scoreB !== "" && scoreB !== undefined ? scoreB : "-"}
@@ -283,6 +235,11 @@ function PalpitesView() {
   const [participanteId, setParticipanteId] = useState("");
   const [palpiteExistente, setPalpiteExistente] = useState(false);
   const [palpitesSalvos, setPalpitesSalvos] = useState([]);
+  const [salvando, setSalvando] = useState(false);
+  const [blocoSelecionado, setBlocoSelecionado] = useState(null);
+  const [possuiAnterior, setPossuiAnterior] = useState(false);
+  const [possuiProximo, setPossuiProximo] = useState(false);
+  const [carregando, setCarregando] = useState(true);
 
   const mostrarMensagem = (tipo, texto) => {
     setMensagem({
@@ -296,8 +253,9 @@ function PalpitesView() {
   };
 
   const handleSave = async () => {
+    setSalvando(true);
     try {
-      const semana = matches[0]?.data?.split("T")[0];
+      const semana = matches[0]?.data;
 
       const palpites = Object.entries(scores).map(
         ([jogoId, placar]) => ({
@@ -379,7 +337,9 @@ function PalpitesView() {
       mostrarMensagem(
         "erro",
         "Erro ao salvar palpites."
-      );
+      )
+    } finally {
+      setSalvando(false);  // ← adiciona
     }
   };
 
@@ -394,14 +354,20 @@ function PalpitesView() {
   };
 
   useEffect(() => {
-    carregarJogos();
-  }, []);
+    carregarJogos(blocoSelecionado);
+  }, [blocoSelecionado]);
+
+  useEffect(() => {
+    if (participanteId && matches.length) {
+      verificarPalpite(participanteId);
+    }
+  }, [matches]);
 
   async function verificarPalpite(id) {
     try {
       if (!matches.length) return;
 
-      const semana = matches[0].data.split("T")[0];
+      const semana = matches[0].data;
 
       const response = await fetch(
         `/api/palpites/${id}/${semana}`
@@ -427,23 +393,34 @@ function PalpitesView() {
     }
   }
 
-  async function carregarJogos() {
+  async function carregarJogos(bloco = null) {
+    setCarregando(true);
     try {
-      const response = await fetch('/api/jogos');
+      const response = await fetch(
+        bloco === null
+          ? '/api/jogos'
+          : `/api/jogos?bloco=${bloco}`
+      );
 
       if (!response.ok) {
         throw new Error(`Erro ${response.status}`);
       }
 
       const data = await response.json();
+      if (blocoSelecionado === null) {
+        setBlocoSelecionado(data.blocoSelecionado);
+      }
+
+      setPossuiAnterior(data.possuiAnterior);
+      setPossuiProximo(data.possuiProximo);
 
       const jogos = data.jogos.map(jogo => ({
         id: jogo.id,
-        grupo: jogo.grupo.replace("_", " ").replace("GROUP", "Grupo"),
-        timeUm: jogo.timeUm.nome,
-        escudoTimeUm: jogo.timeUm.escudo,
-        timeDois: jogo.timeDois.nome,
-        escudoTimeDois: jogo.timeDois.escudo,
+        grupo: jogo.grupo ? jogo.grupo.replace("_", " ").replace("GROUP", "Grupo") : "Eliminatórias",
+        timeUm: jogo.timeUm.nome ?? "A definir",
+        escudoTimeUm: jogo.timeUm.escudo ?? "/blackout.jpg",
+        timeDois: jogo.timeDois.nome ?? "A definir",
+        escudoTimeDois: jogo.timeDois.escudo ?? "/blackout.jpg",
         status: jogo.status,
         placar: {
           timeUm: jogo.placar.timeUm,
@@ -460,11 +437,14 @@ function PalpitesView() {
       }));
 
       setMatches(jogos);
-
+      setCarregando(false);
     } catch (error) {
       console.error("Erro ao carregar jogos:", error);
     }
   }
+  const semanaDefinida = matches.every(
+    m => m.timeUm !== "A definir" && m.timeDois !== "A definir"
+  );
   return (
     <div className="flex flex-col gap-6">
       <div className="rounded-xl border border-zinc-700 bg-zinc-800 p-4 shadow-sm sm:p-5">
@@ -497,10 +477,45 @@ function PalpitesView() {
       </div>
 
       <div>
-        <h2 className="mb-3 text-lg font-bold">Rodada 1 - Semana {matches.length > 0 &&
-    `${new Date(matches[0].data).toLocaleDateString("pt-BR")} a ${new Date(matches[matches.length - 1].data).toLocaleDateString("pt-BR")}`}</h2>
-        <div className="grid gap-4 md:grid-cols-2">
-          {matches.map((match) => {
+        <div className="mb-4 flex items-center justify-between">
+          <button
+            type="button"
+            disabled={!possuiAnterior}
+            onClick={() => {
+              setPalpiteExistente(false);
+              setPalpitesSalvos([]);
+              setBlocoSelecionado(prev => prev - 1);
+            }}
+            className="rounded-md border border-zinc-600 px-3 py-2 disabled:opacity-40"
+          >
+            ← Anterior
+          </button>
+
+          <h2 className="text-lg font-bold text-center">
+            {matches.length > 0 &&
+              `${matches[0].data.split('-').reverse().join('/')} a ${
+                matches[matches.length - 1].data.split('-').reverse().join('/')
+              }`}
+          </h2>
+
+          <button
+            type="button"
+            disabled={!possuiProximo}
+            onClick={() => {
+              setPalpiteExistente(false);
+              setPalpitesSalvos([]);
+              setBlocoSelecionado(prev => prev + 1);
+            }}
+            className="rounded-md border border-zinc-600 px-3 py-2 disabled:opacity-40"
+          >
+            Próximo →
+          </button>
+        </div>
+        {carregando ? (
+          <div className="text-center text-zinc-400 py-10">Carregando jogos...</div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {matches.map((match) => {
             const palpiteSalvo = palpitesSalvos.find(
             p => Number(p.jogoId) === Number(match.id)
           );
@@ -539,13 +554,15 @@ function PalpitesView() {
                     : scores[match.id]?.b ?? ""
                 }
                 pontos={pontos}
+                semanaDefinida={semanaDefinida}
                 onChangeA={(v) => setScore(match.id, "a", v)}
                 onChangeB={(v) => setScore(match.id, "b", v)}
-                disabled={palpiteExistente}
+                disabled={palpiteExistente || !semanaDefinida}
               />
             );
           })}
         </div>
+        )}
       </div>
 
       <div className="sticky bottom-4 z-10 flex flex-col items-center gap-2">
@@ -562,25 +579,22 @@ function PalpitesView() {
         )}
         {!palpiteExistente && (
           <button
-          type="button"
-          onClick={handleSave}
-          className="
-            inline-flex w-full items-center justify-center gap-2
-            rounded-md
-            bg-primary
-            px-6 py-3
-            text-base font-semibold text-primary-foreground
-            shadow-lg
-            transition-all duration-200
-            hover:bg-white
-            hover:text-black
-            hover:border-white
-            sm:w-auto sm:px-12
-          "
-        >
-          <SaveIcon className="size-5" />
-          Salvar Palpites
-        </button>
+            type="button"
+            onClick={handleSave}
+            disabled={salvando}
+            className="
+              inline-flex w-full items-center justify-center gap-2
+              rounded-md bg-primary px-6 py-3
+              text-base font-semibold text-primary-foreground
+              shadow-lg transition-all duration-200
+              hover:bg-white hover:text-black hover:border-white
+              disabled:opacity-50 disabled:cursor-not-allowed
+              sm:w-auto sm:px-12
+            "
+          >
+            <SaveIcon className="size-5" />
+            {salvando ? "Salvando..." : "Salvar Palpites"}
+          </button>
         )}
       </div>
     </div>
@@ -627,7 +641,7 @@ function ClassificacaoView() {
   return (
     <div className="overflow-hidden rounded-xl border border-zinc-700 bg-zinc-800 shadow-sm">
       <div className="border-b border-zinc-700 p-4 sm:p-5">
-        <h2 className="text-lg font-bold">Classificação Geral</h2>
+        <h2 className="text-lg font-bold text-center">Classificação Geral</h2>
         <p className="text-sm text-zinc-400">
           Ranking do bolão da família
         </p>
@@ -668,7 +682,7 @@ function ClassificacaoView() {
           </div>
         </div>
       </div>
-
+      <div className="overflow-x-auto">
       <table className="w-full caption-bottom text-sm">
         <thead>
           <tr className="border-b border-zinc-700">
@@ -688,7 +702,7 @@ function ClassificacaoView() {
               Vencedores
             </th>
 
-            <th className="hidden h-12 px-2 text-center align-middle font-medium text-zinc-400 sm:table-cell">
+            <th className="table-cell h-12 px-2 text-center align-middle font-medium text-zinc-400 sm:table-cell">
               Gols Acertados
             </th>
 
@@ -735,7 +749,7 @@ function ClassificacaoView() {
                   {entry.winners}
                 </td>
 
-                <td className="hidden px-2 py-3 text-center align-middle tabular-nums sm:table-cell">
+                <td className="table-cell px-2 py-3 text-center align-middle tabular-nums sm:table-cell">
                   {entry.goals}
                 </td>
 
@@ -749,6 +763,7 @@ function ClassificacaoView() {
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -766,14 +781,14 @@ export default function Page() {
   }`
 
   return (
-    <main className="min-h-screen bg-zinc-900 text-zinc-100">
+    <main className="min-h-screen min-h-[100dvh] bg-zinc-900 text-zinc-100">
       <header className="border-b border-zinc-700 bg-zinc-800">
         <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-4 sm:px-6">
           <span className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <TrophyIcon className="size-5" />
           </span>
           <div>
-            <h1 className="text-lg font-bold leading-tight">Bolão da Copa</h1>
+            <h1 className="text-lg font-bold text-center leading-tight">Bolão da Copa</h1>
             <p className="text-sm text-muted-foreground">Palpites em família</p>
           </div>
         </div>
